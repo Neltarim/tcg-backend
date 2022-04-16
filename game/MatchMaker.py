@@ -1,9 +1,10 @@
-import json
+import json, random, string
 from channels.generic.websocket import AsyncJsonWebsocketConsumer
 from django.contrib.auth import authenticate
 from channels.db import database_sync_to_async as db_call
 
 from .database import lobbyQueries as Lobby_q
+from .database import gameQueries as Game_q
 
 
 class MatchMaker(AsyncJsonWebsocketConsumer):
@@ -12,7 +13,7 @@ class MatchMaker(AsyncJsonWebsocketConsumer):
     self.room_name = 'lobby'
     self.room_group_name = 'group_lobby'
 
-    # Join room group
+    # Join lobby
     await self.channel_layer.group_add(
       self.room_group_name,
       self.channel_name
@@ -79,6 +80,7 @@ class MatchMaker(AsyncJsonWebsocketConsumer):
     if self.user:
       self.lobby = await db_call(Lobby_q.connectUser)(self.user)
       print('NEW USER CONNECTED :' + username)
+      await self.findMatch()
     
     else:
       print("Couldn't authenticate'")
@@ -87,3 +89,38 @@ class MatchMaker(AsyncJsonWebsocketConsumer):
 
   async def testFunc(self, event):
     print(event['message'])
+
+  async def findMatch(self):
+    data = await db_call(Lobby_q.enterWaitingRoom)(self.user)
+    self.waitingRoom = data[1]
+    roomPopulation = data[0]
+
+    await self.channel_layer.group_add(
+      str(self.waitingRoom.id),
+      self.channel_name
+    )
+    letters = string.ascii_lowercase
+    if roomPopulation == 2:
+      token = ''.join(random.choice(letters) for i in range(10))
+      await db_call(Game_q.createRoom)(token)
+
+      print('Game found')
+      await self.channel_layer.group_send(
+        str(self.waitingRoom.id),
+        { "type" : "startMatch", 'token': token }
+      )
+
+    else:
+      await self.send_message({
+        'event': 'WAITING_ROOM', 
+        'message' : 'Currently in waiting room.'
+      })
+
+  async def startMatch(self, event):
+    await db_call(Lobby_q.disconnectUser)(self.user)
+    await self.send_message({
+      'event': 'JOIN_GAME', 
+      'message': 'Game found.',
+      'token': event['token']
+    })
+    await self.disconnect('GAME_FOUND')

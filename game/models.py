@@ -5,3 +5,9 @@ from asgiref.sync import sync_to_async
 class Lobby(models.Model):
     room_name = models.CharField(max_length=150, unique=True)
     users = models.ManyToManyField(User)
+
+class WaitingRoom(models.Model):
+    users = models.ManyToManyField(User)
+
+class GameRoom(models.Model):
+    users = models.ManyToManyField(User)
